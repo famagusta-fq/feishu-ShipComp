@@ -51,7 +51,7 @@ function App() {
 
   const loadRules = useCallback(async () => {
     if (!bitable?.base) {
-      setStatus('SDK未就绪');
+      setStatus('SDK未就绪，正在等待...');
       return;
     }
 
@@ -226,7 +226,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    loadRules();
+    const checkSdkReady = () => {
+      if (bitable?.base) {
+        loadRules();
+      } else {
+        const timer = setTimeout(checkSdkReady, 100);
+        return () => clearTimeout(timer);
+      }
+    };
+    checkSdkReady();
   }, [loadRules]);
 
   useEffect(() => {
