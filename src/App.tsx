@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ShippingRule, CalculationResult, AlgorithmType } from './types';
 import { calculateShippingFee, isShippingTable } from './utils/calculator';
-import { bitable } from '@lark-base-open/js-sdk';
 import './App.css';
+
+declare global {
+  interface Window {
+    bitable?: any;
+  }
+}
 
 function App() {
   const [form, setForm] = useState({
@@ -49,8 +54,13 @@ function App() {
     return 'firstWeightPlusContinued';
   };
 
+  const getBitable = () => {
+    return window.bitable;
+  };
+
   const loadRules = useCallback(async () => {
-    if (!bitable?.base) {
+    const bitable = getBitable();
+    if (!bitable || !bitable.base) {
       setStatus('SDK未就绪，正在等待...');
       return;
     }
@@ -227,6 +237,7 @@ function App() {
 
   useEffect(() => {
     const checkSdkReady = () => {
+      const bitable = getBitable();
       if (bitable?.base) {
         loadRules();
       } else {
