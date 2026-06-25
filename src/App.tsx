@@ -1,13 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
+import { bitable } from '@lark-base-open/js-sdk';
 import { ShippingRule, CalculationResult, AlgorithmType } from './types';
 import { calculateShippingFee, isShippingTable } from './utils/calculator';
 import './App.css';
-
-declare global {
-  interface Window {
-    bitable?: any;
-  }
-}
 
 function App() {
   const [form, setForm] = useState({
@@ -55,7 +50,7 @@ function App() {
   };
 
   const getBitable = () => {
-    return window.bitable;
+    return bitable;
   };
 
   const loadRules = useCallback(async () => {
