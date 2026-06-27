@@ -4,6 +4,28 @@
   box-sizing: border-box;
 }
 
+.error-boundary {
+  padding: 40px 20px;
+  text-align: center;
+  background: #fff;
+  border-radius: 12px;
+  margin: 20px;
+}
+
+.error-boundary > div:first-child {
+  font-size: 18px;
+  font-weight: 600;
+  color: #d93026;
+  margin-bottom: 12px;
+}
+
+.error-message {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 16px;
+  word-break: break-all;
+}
+
 .app {
   padding: 16px;
   min-height: 100vh;
