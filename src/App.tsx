@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { bitable } from '@lark-base-open/js-sdk';
 import { ShippingRule, CalculationResult, AlgorithmType } from './types';
 import { calculateShippingFee, isShippingTable } from './utils/calculator';
 import './App.css';
+
+const SDK_TIMEOUT = 30000;
+const SDK_POLL_INTERVAL = 500;
 
 function App() {
   const [form, setForm] = useState({
@@ -54,9 +57,9 @@ function App() {
   };
 
   const loadRules = useCallback(async () => {
-    const bitable = getBitable();
-    if (!bitable || !bitable.base) {
-      setStatus('SDK未就绪，正在等待...');
+    const b = getBitable();
+    if (!b || !b.base || typeof b.base.getTableMetaList !== 'function') {
+      setStatus('SDK未就绪，请稍候...');
       return;
     }
 
@@ -65,7 +68,7 @@ function App() {
     setRules([]);
 
     try {
-      const tablesResult = await bitable.base.getTableMetaList();
+      const tablesResult = await b.base.getTableMetaList();
       const tables = Array.isArray(tablesResult) ? tablesResult : (tablesResult as any)?.data || [];
 
       const shippingTables: Array<{ id: string; name: string; fieldMap: Record<string, string> }> = [];
@@ -74,7 +77,7 @@ function App() {
       for (const tableMeta of tables) {
         const tableName = tableMeta.name || tableMeta.tableName || '未知';
         try {
-          const table = await bitable.base.getTableById(tableMeta.id);
+          const table = await b.base.getTableById(tableMeta.id);
           const fields = await table.getFieldMetaList();
           const fieldMap: Record<string, string> = {};
           const fieldNames: string[] = [];
@@ -127,7 +130,7 @@ function App() {
 
       for (const { id, name, fieldMap } of shippingTables) {
         try {
-          const table = await bitable.base.getTableById(id);
+          const table = await b.base.getTableById(id);
 
           let regionField = '';
           let firstPriceField = '';
@@ -230,17 +233,46 @@ function App() {
     }
   }, []);
 
+  const sdkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startTimeRef = useRef(Date.now());
+
   useEffect(() => {
     const checkSdkReady = () => {
-      const bitable = getBitable();
-      if (bitable?.base) {
+      const b = getBitable();
+      
+      if (b && b.base && typeof b.base.getTableMetaList === 'function') {
+        if (timeoutTimerRef.current) {
+          clearTimeout(timeoutTimerRef.current);
+          timeoutTimerRef.current = null;
+        }
         loadRules();
-      } else {
-        const timer = setTimeout(checkSdkReady, 100);
-        return () => clearTimeout(timer);
+        return;
       }
+
+      if (Date.now() - startTimeRef.current > SDK_TIMEOUT) {
+        setStatus('SDK初始化超时，请刷新重试');
+        return;
+      }
+
+      setStatus('SDK初始化中...');
+      sdkTimerRef.current = setTimeout(checkSdkReady, SDK_POLL_INTERVAL);
     };
+
+    timeoutTimerRef.current = setTimeout(() => {
+      if (sdkTimerRef.current) {
+        clearTimeout(sdkTimerRef.current);
+        sdkTimerRef.current = null;
+      }
+      setStatus('SDK初始化超时，请刷新重试');
+    }, SDK_TIMEOUT);
+
     checkSdkReady();
+
+    return () => {
+      if (sdkTimerRef.current) clearTimeout(sdkTimerRef.current);
+      if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+    };
   }, [loadRules]);
 
   useEffect(() => {
@@ -473,7 +505,20 @@ function App() {
         </div>
       )}
 
-      {rules.length === 0 && !loading && (
+      {rules.length === 0 && !loading && status.includes('超时') && (
+        <div className="empty">
+          <div>⚠️</div>
+          <div>{status}</div>
+          <button onClick={() => {
+            startTimeRef.current = Date.now();
+            loadRules();
+          }} className="btn-primary" style={{ marginTop: '10px' }}>
+            🔄 重新加载
+          </button>
+        </div>
+      )}
+
+      {rules.length === 0 && !loading && !status.includes('超时') && (
         <div className="empty">
           <div>📭</div>
           <div>未找到运价表</div>
