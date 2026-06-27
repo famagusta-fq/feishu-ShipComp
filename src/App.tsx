@@ -1,14 +1,93 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { bitable } from '@lark-base-open/js-sdk';
 import { ShippingRule, CalculationResult, AlgorithmType } from './types';
 import { calculateShippingFee, isShippingTable } from './utils/calculator';
-import { mockRules } from './utils/mockData';
 import './App.css';
 
-declare global {
-  interface Window {
-    bitable?: any;
-  }
-}
+const mockRules: ShippingRule[] = import.meta.env.DEV ? [
+  {
+    company: '申通',
+    region: '北京',
+    firstWeight: 1,
+    firstPrice: 12,
+    continuedPrice: 8,
+    throwBase: 6000,
+    surfaceFee: 0,
+    algorithm: 'firstWeightPlusContinued',
+    tierPrices: [],
+    temporarySurcharge: 0,
+  },
+  {
+    company: '申通',
+    region: '上海',
+    firstWeight: 1,
+    firstPrice: 10,
+    continuedPrice: 6,
+    throwBase: 6000,
+    surfaceFee: 0,
+    algorithm: 'firstWeightPlusContinued',
+    tierPrices: [],
+    temporarySurcharge: 0,
+  },
+  {
+    company: '韵达',
+    region: '北京',
+    firstWeight: 1,
+    firstPrice: 0,
+    continuedPrice: 0,
+    throwBase: 6000,
+    surfaceFee: 0,
+    algorithm: 'tieredPrice',
+    tierPrices: [
+      { weight: 0.5, price: 2.7 },
+      { weight: 1, price: 3.1 },
+      { weight: 2, price: 4.5 },
+      { weight: 3, price: 5.9 },
+    ],
+    temporarySurcharge: 0,
+  },
+  {
+    company: '韵达',
+    region: '上海',
+    firstWeight: 1,
+    firstPrice: 0,
+    continuedPrice: 0,
+    throwBase: 6000,
+    surfaceFee: 0,
+    algorithm: 'tieredPrice',
+    tierPrices: [
+      { weight: 0.5, price: 2.5 },
+      { weight: 1, price: 2.9 },
+      { weight: 2, price: 4.2 },
+      { weight: 3, price: 5.5 },
+    ],
+    temporarySurcharge: 0,
+  },
+  {
+    company: '中通',
+    region: '北京',
+    firstWeight: 1,
+    firstPrice: 15,
+    continuedPrice: 10,
+    throwBase: 6000,
+    surfaceFee: 1,
+    algorithm: 'weightTimesContinuedPlusSurface',
+    tierPrices: [],
+    temporarySurcharge: 0,
+  },
+  {
+    company: '顺丰',
+    region: '北京',
+    firstWeight: 1,
+    firstPrice: 23,
+    continuedPrice: 13,
+    throwBase: 6000,
+    surfaceFee: 0,
+    algorithm: 'firstWeightPlusContinued',
+    tierPrices: [],
+    temporarySurcharge: 0,
+  },
+] : [];
 
 const SDK_TIMEOUT = 30000;
 const SDK_POLL_INTERVAL = 500;
@@ -26,51 +105,37 @@ function App() {
   const [results, setResults] = useState<CalculationResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [rulesVersion, setRulesVersion] = useState(0);
-
-  const parseNum = (val: string, min: number = 0.01): number => {
-    const num = parseFloat(val);
-    return isNaN(num) || num < min ? min : num;
-  };
+  
 
   const getText = (val: unknown): string => {
     if (val === null || val === undefined) return '';
-    if (Array.isArray(val)) return val.map((item: any) => item.text || String(item)).join('');
-    if (typeof val === 'object' && (val as any).text !== undefined) return String((val as any).text);
+    if (Array.isArray(val)) return val.join(',');
     return String(val);
   };
 
-  const getNum = (val: unknown, defaultVal: number = 0): number => {
-    if (val === null || val === undefined) return defaultVal;
-    if (typeof val === 'number') return val;
-    const text = getText(val);
-    if (!text) return defaultVal;
-    const num = Number(text.replace(/[^0-9.]/g, ''));
+  const getNum = (val: unknown, defaultVal: number): number => {
+    const num = parseFloat(getText(val));
     return isNaN(num) ? defaultVal : num;
   };
 
-  const parseAlgorithm = (text: string): AlgorithmType => {
-    const lower = String(text).toLowerCase();
-    if (lower.includes('阶梯') || lower.includes('固定价')) return 'tieredPrice';
-    if (lower.includes('重量') && lower.includes('续重') && lower.includes('面单')) return 'weightTimesContinuedPlusSurface';
+  const parseAlgorithm = (algorithmStr: string): AlgorithmType => {
+    const lower = algorithmStr.toLowerCase();
+    if (lower.includes('阶梯') || lower.includes('分段')) return 'tieredPrice';
     if (lower.includes('×续重+面单') || lower.includes('*续重+面单')) return 'weightTimesContinuedPlusSurface';
     return 'firstWeightPlusContinued';
   };
 
-  const getBitable = () => {
-    return window.bitable;
-  };
-
   const loadRules = useCallback(async () => {
-    const b = getBitable();
-    if (!b || !b.base || typeof b.base.getTableMetaList !== 'function') {
-      setStatus('本地开发模式，使用Mock数据...');
-      setTimeout(() => {
-        setRules(mockRules);
-        setStatus(`已识别 ${mockRules.length} 条报价`);
-        setLoading(false);
-      }, 500);
+    if (!bitable || !bitable.base || typeof bitable.base.getTableMetaList !== 'function') {
+      if (import.meta.env.DEV && mockRules.length > 0) {
+        setStatus('本地开发模式，使用Mock数据...');
+        setTimeout(() => {
+          setRules(mockRules);
+          setStatus(`已识别 ${mockRules.length} 条报价`);
+        }, 500);
+      } else {
+        setStatus('SDK未就绪，请稍候...');
+      }
       return;
     }
 
@@ -79,7 +144,7 @@ function App() {
     setRules([]);
 
     try {
-      const tablesResult = await b.base.getTableMetaList();
+      const tablesResult = await bitable.base.getTableMetaList();
       const tables = Array.isArray(tablesResult) ? tablesResult : (tablesResult as any)?.data || [];
 
       const shippingTables: Array<{ id: string; name: string; fieldMap: Record<string, string> }> = [];
@@ -88,7 +153,7 @@ function App() {
       for (const tableMeta of tables) {
         const tableName = tableMeta.name || tableMeta.tableName || '未知';
         try {
-          const table = await b.base.getTableById(tableMeta.id);
+          const table = await bitable.base.getTableById(tableMeta.id);
           const fields = await table.getFieldMetaList();
           const fieldMap: Record<string, string> = {};
           const fieldNames: string[] = [];
@@ -141,7 +206,7 @@ function App() {
 
       for (const { id, name, fieldMap } of shippingTables) {
         try {
-          const table = await b.base.getTableById(id);
+          const table = await bitable.base.getTableById(id);
 
           let regionField = '';
           let firstPriceField = '';
@@ -235,7 +300,6 @@ function App() {
       }
 
       setRules(allRules);
-      setRulesVersion(v => v + 1);
       setStatus(`已识别 ${new Set(allRules.map(r => r.company)).size} 家快递，${allRules.length} 条报价`);
     } catch (err) {
       setStatus('加载失败: ' + (err as Error).message);
@@ -250,13 +314,16 @@ function App() {
 
   useEffect(() => {
     const checkSdkReady = () => {
-      const b = getBitable();
-      
-      if (b && b.base && typeof b.base.getTableMetaList === 'function') {
+      if (bitable && bitable.base && typeof bitable.base.getTableMetaList === 'function') {
         if (timeoutTimerRef.current) {
           clearTimeout(timeoutTimerRef.current);
           timeoutTimerRef.current = null;
         }
+        loadRules();
+        return;
+      }
+
+      if (import.meta.env.DEV && mockRules.length > 0) {
         loadRules();
         return;
       }
@@ -286,229 +353,187 @@ function App() {
     };
   }, [loadRules]);
 
-  useEffect(() => {
-    if (form.region && form.weight) {
-      calculate();
-    }
-  }, [rulesVersion, form.region, form.weight, form.length, form.width, form.height]);
-
-  const calculate = () => {
-    const weight = parseNum(form.weight);
-    const length = parseNum(form.length, 0);
-    const width = parseNum(form.width, 0);
-    const height = parseNum(form.height, 0);
-    const region = form.region.trim();
-
-    if (!region) return;
-
-    const companyRules: Record<string, ShippingRule[]> = {};
-    rules.forEach(r => {
-      if (!companyRules[r.company]) companyRules[r.company] = [];
-      companyRules[r.company].push(r);
-    });
-
-    const calcResults: CalculationResult[] = [];
-
-    for (const [company, companyRuleList] of Object.entries(companyRules)) {
-      const matched = companyRuleList.find(r => region.includes(r.region) || r.region.includes(region));
-
-      if (!matched) {
-        calcResults.push({
-          company,
-          region,
-          hasData: false,
-          fee: 0,
-          actualWeight: weight,
-          throwWeight: 0,
-          billingWeight: 0,
-          breakdown: { surfaceFee: 0, weightFee: 0, surcharge: 0 },
-          steps: ['暂不支持该收件地区'],
-          algorithm: 'firstWeightPlusContinued',
-        });
-      } else {
-        calcResults.push(calculateShippingFee(weight, length, width, height, matched));
-      }
+  const calculate = useCallback(() => {
+    if (!form.weight || !form.region) {
+      setStatus('请输入重量和收件地区');
+      return;
     }
 
-    calcResults.sort((a, b) => {
-      if (!a.hasData) return 1;
-      if (!b.hasData) return -1;
-      return a.fee - b.fee;
-    });
+    const weight = parseFloat(form.weight);
+    if (isNaN(weight) || weight <= 0) {
+      setStatus('请输入有效的重量');
+      return;
+    }
 
-    setResults(calcResults);
+    const length = parseFloat(form.length || '0');
+    const width = parseFloat(form.width || '0');
+    const height = parseFloat(form.height || '0');
+
+    const filteredRules = rules.filter(r => 
+      r.region.includes(form.region) || form.region.includes(r.region)
+    );
+
+    if (filteredRules.length === 0) {
+      setStatus(`未找到 ${form.region} 的报价`);
+      setResults([]);
+      return;
+    }
+
+    const calculated = filteredRules.map(rule => {
+      const result = calculateShippingFee(
+        weight,
+        length,
+        width,
+        height,
+        rule
+      );
+      return {
+        ...result,
+        company: rule.company,
+        region: rule.region,
+      };
+    }).sort((a, b) => a.fee - b.fee);
+
+    setResults(calculated);
+    setStatus(`计算完成，共 ${calculated.length} 个方案`);
+  }, [form, rules]);
+
+  const handleInputChange = (field: keyof typeof form, value: string) => {
+    setForm(prev => ({ ...prev, [field]: value }));
   };
 
-  const getAlgoLabel = (algo: AlgorithmType) => {
-    if (algo === 'tieredPrice') return '阶梯价格';
-    if (algo === 'weightTimesContinuedPlusSurface') return '重量×续重+面单';
-    return '首重+续重';
-  };
-
-  const getRegions = () => {
-    return [...new Set(rules.map(r => r.region))].sort();
-  };
+  const minPrice = results.length > 0 ? Math.min(...results.map(r => r.fee)) : 0;
 
   return (
     <div className="app">
       <div className="header">
         <h1>📦 万能电商本地运费比价器</h1>
-        <p>完全动态适配 · 智能对比最优方案</p>
+        <p className="subtitle">完全动态适配·智能对比最优方案</p>
       </div>
 
-      {status && (
-        <div className="status">
-          {loading ? '⏳ ' : '✅ '}{status}
-        </div>
-      )}
+      <div className="status-bar">{status}</div>
 
-      <div className="input-section">
-        <div className="input-row">
-          <div className="input-item">
-            <label>实际重量 (KG)</label>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={form.weight}
-              onChange={e => setForm({ ...form, weight: e.target.value })}
-              placeholder="请输入重量"
-            />
-          </div>
+      <div className="form-section">
+        <div className="input-group">
+          <label>实际重量 (KG)</label>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            value={form.weight}
+            onChange={(e) => handleInputChange('weight', e.target.value)}
+            placeholder="请输入重量"
+          />
         </div>
 
-        <div className="input-row">
-          <div className="input-item">
+        <div className="dimensions">
+          <div className="input-group">
             <label>长度 (CM)</label>
             <input
               type="number"
               min="0"
               value={form.length}
-              onChange={e => setForm({ ...form, length: e.target.value })}
+              onChange={(e) => handleInputChange('length', e.target.value)}
               placeholder="0"
             />
           </div>
-          <div className="input-item">
+          <div className="input-group">
             <label>宽度 (CM)</label>
             <input
               type="number"
               min="0"
               value={form.width}
-              onChange={e => setForm({ ...form, width: e.target.value })}
+              onChange={(e) => handleInputChange('width', e.target.value)}
               placeholder="0"
             />
           </div>
-          <div className="input-item">
+          <div className="input-group">
             <label>高度 (CM)</label>
             <input
               type="number"
               min="0"
               value={form.height}
-              onChange={e => setForm({ ...form, height: e.target.value })}
+              onChange={(e) => handleInputChange('height', e.target.value)}
               placeholder="0"
             />
           </div>
         </div>
 
-        <div className="input-row">
-          <div className="input-item">
-            <label>收件省市</label>
-            <select
-              value={form.region}
-              onChange={e => setForm({ ...form, region: e.target.value })}
-              disabled={loading || getRegions().length === 0}
-            >
-              <option value="">请选择收件地区</option>
-              {getRegions().map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
+        <div className="input-group">
+          <label>收件省市</label>
+          <input
+            type="text"
+            value={form.region}
+            onChange={(e) => handleInputChange('region', e.target.value)}
+            placeholder="请输入收件地区"
+          />
         </div>
 
-        <div className="btn-group">
-          <button
-            onClick={async () => {
-              await loadRules();
-              calculate();
-            }}
-            disabled={loading || !form.region || !form.weight}
-            className="btn-primary"
-          >
-            🚀 立即计算运费
-          </button>
-        </div>
+        <button onClick={calculate} disabled={loading} className="btn-primary">
+          {loading ? '⏳ 计算中...' : '🔍 立即计算运费'}
+        </button>
       </div>
 
       {rules.length > 0 && (
-        <div className="info-section">
-          <h3>📊 已识别运价表</h3>
-          <div className="company-tags">
-            {Array.from(new Set(rules.map(r => r.company))).map(c => (
-              <span key={c}>{c}</span>
+        <div className="tables-section">
+          <h3>已识别运价表</h3>
+          <div className="tables-tags">
+            {[...new Set(rules.map(r => r.company))].map(company => (
+              <span key={company} className="table-tag">{company}</span>
             ))}
           </div>
         </div>
       )}
 
       {results.length > 0 && (
-        <div className="result-section">
-          <h3>💰 价格对比</h3>
-
-          {results[0]?.hasData && results.length > 1 && (
-            <div className="best-card">
-              <div className="best-badge">⭐ 最优推荐</div>
-              <div className="best-info">
-                <div className="best-company">{results[0].company}</div>
-                <div className="best-price">¥{results[0].fee.toFixed(2)}</div>
-                {results[1]?.hasData && (
-                  <div className="best-saving">相比第二名节省 ¥{(results[1].fee - results[0].fee).toFixed(2)}</div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="result-list">
-            {results.map((r, idx) => (
+        <div className="results-section">
+          <h3>计算结果</h3>
+          <div className="results-list">
+            {results.map((result, index) => (
               <div
-                key={`${r.company}-${r.region}`}
-                className={`result-item ${!r.hasData ? 'disabled' : ''} ${idx === 0 && r.hasData ? 'highlight' : ''}`}
+                key={`${result.company}-${result.region}-${index}`}
+                className={`result-item ${result.fee === minPrice ? 'best' : ''}`}
               >
-                <div className="result-header" onClick={() => setExpanded(expanded === r.company ? null : r.company)}>
-                  <span className="rank">{idx + 1}</span>
+                <div className="result-header">
+                  <div className="result-rank">{index + 1}</div>
                   <div className="result-info">
-                    <span className="company">{r.company}</span>
-                    <span className="meta">{r.region} · {getAlgoLabel(r.algorithm)}</span>
+                    <span className="result-company">{result.company}</span>
+                    <span className="result-region">{result.region}</span>
                   </div>
-                  <span className="price">{r.hasData ? `¥${r.fee.toFixed(2)}` : '--'}</span>
-                  <span className="expand">{expanded === r.company ? '▲' : '▼'}</span>
+                  <div className={`result-price ${result.fee === minPrice ? 'best-price' : ''}`}>
+                    ¥{result.fee.toFixed(2)}
+                  </div>
                 </div>
 
-                {expanded === r.company && (
-                  <div className="result-detail">
-                    {!r.hasData ? (
-                      <div className="no-data">暂不支持该收件地区</div>
-                    ) : (
-                      <>
-                        <div className="detail-row">
-                          <span>📦 实重: {r.actualWeight}KG</span>
-                          <span>📐 计抛: {r.throwWeight.toFixed(2)}KG</span>
-                          <span>⚖️ 计费: <strong>{r.billingWeight.toFixed(2)}KG</strong></span>
-                        </div>
-                        <div className="detail-row">
-                          <span>📄 面单费: ¥{r.breakdown.surfaceFee.toFixed(2)}</span>
-                          <span>💰 运费: ¥{r.breakdown.weightFee.toFixed(2)}</span>
-                          <span>➕ 加价: ¥{r.breakdown.surcharge.toFixed(2)}</span>
-                        </div>
-                        <div className="steps">
-                          <div className="steps-title">📝 计算过程</div>
-                          {r.steps.map((step, i) => (
-                            <div key={i}>{step}</div>
-                          ))}
-                        </div>
-                      </>
-                    )}
+                <div className="result-details">
+                  <div className="detail-row">
+                    <span>实际重量</span>
+                    <span>{result.actualWeight} KG</span>
                   </div>
+                  <div className="detail-row">
+                    <span>体积重量</span>
+                    <span>{result.throwWeight.toFixed(2)} KG</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>计费重量</span>
+                    <span>{result.billingWeight.toFixed(2)} KG</span>
+                  </div>
+                  {result.breakdown.surfaceFee > 0 && (
+                    <div className="detail-row">
+                      <span>面单费</span>
+                      <span>¥{result.breakdown.surfaceFee.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {result.breakdown.surcharge > 0 && (
+                    <div className="detail-row">
+                      <span>临时加价</span>
+                      <span>¥{result.breakdown.surcharge.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {result.fee === minPrice && (
+                  <div className="best-badge">🏆 最优方案</div>
                 )}
               </div>
             ))}
@@ -516,24 +541,10 @@ function App() {
         </div>
       )}
 
-      {rules.length === 0 && !loading && status.includes('超时') && (
-        <div className="empty">
-          <div>⚠️</div>
-          <div>{status}</div>
-          <button onClick={() => {
-            startTimeRef.current = Date.now();
-            loadRules();
-          }} className="btn-primary" style={{ marginTop: '10px' }}>
-            🔄 重新加载
-          </button>
-        </div>
-      )}
-
-      {rules.length === 0 && !loading && !status.includes('超时') && (
-        <div className="empty">
-          <div>📭</div>
-          <div>未找到运价表</div>
-          <div>请在左侧多维表格中创建包含「地区」「首重」「续重」等字段的运价表</div>
+      {results.length === 0 && status && !status.includes('初始化') && !status.includes('读取') && !status.includes('计算') && (
+        <div className="empty-state">
+          <div>📭 暂无计算结果</div>
+          <div>请输入重量和地区后点击"立即计算运费"</div>
         </div>
       )}
     </div>
