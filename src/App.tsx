@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ShippingRule, CalculationResult, AlgorithmType } from './types';
 import { calculateShippingFee, isShippingTable } from './utils/calculator';
+import { mockRules } from './utils/mockData';
 import './App.css';
 
 declare global {
@@ -64,7 +65,12 @@ function App() {
   const loadRules = useCallback(async () => {
     const b = getBitable();
     if (!b || !b.base || typeof b.base.getTableMetaList !== 'function') {
-      setStatus('SDK未就绪，请稍候...');
+      setStatus('本地开发模式，使用Mock数据...');
+      setTimeout(() => {
+        setRules(mockRules);
+        setStatus(`已识别 ${mockRules.length} 条报价`);
+        setLoading(false);
+      }, 500);
       return;
     }
 
